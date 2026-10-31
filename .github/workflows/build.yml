@@ -39,11 +39,11 @@ jobs:
         include:
           - firmware: 5.15.7-b9111
             ota_url: ${{ vars.OTA_URL }}
-            boot_sha256: ${{ vars.OTA_BOOT_SHA256 }}
+            boot_sha256: f47a0486fcde8a38792dac35c9bedb789d91a5de752efd68ab308aead1448d8b
             kernel_release: 5.10.198-perf-gaaf872b28b70-ab117
           - firmware: 5.15.4-b8047
             ota_url: ${{ vars.OTA_URL_5_15_4 }}
-            boot_sha256: ${{ vars.OTA_BOOT_SHA256_5_15_4 }}
+            boot_sha256: 89795a5335e24df81525c462cc678b770a57ace307bac1168f4fd43448935506
             kernel_release: 5.10.198-perf-g9f520a4e4b71-ab1
     env:
       FIRMWARE: ${{ matrix.firmware }}
