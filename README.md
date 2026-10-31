@@ -10,3 +10,11 @@
 ## supported firmwares
 - `5.15.7`
 - `5.15.4` (untested, but will work because same kernel source)
+
+
+---
+## credits
+- https://github.com/diabl0w/DFRoot
+- https://github.com/tiann/KernelSU
+- deepseek for research
+  - alright sorry but someone had to do this already
