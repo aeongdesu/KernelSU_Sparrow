@@ -250,7 +250,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: kernelsu-sparrow-*
+          pattern: '*.apk'
           merge-multiple: true
           path: dist
 
