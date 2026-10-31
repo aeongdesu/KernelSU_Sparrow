@@ -1,0 +1,40 @@
+diff --git a/userspace/ksud/build.rs b/userspace/ksud/build.rs
+index 2f63f1d7..a2f0ec64 100644
+--- a/userspace/ksud/build.rs
++++ b/userspace/ksud/build.rs
+@@ -10,6 +10,12 @@ const BOOTSTRAP_OBJECT: &str = "lkm_image_bootstrap.o";
+ const PREPARED_BOOTSTRAP_OBJECT: &str = ".lkm_image_bootstrap.o";
+ 
+ fn get_git_version() -> Result<(u32, String), std::io::Error> {
++    if let (Ok(code), Ok(name)) = (env::var("KSU_VERSION_CODE"), env::var("KSU_VERSION_NAME")) {
++        if let Ok(code) = code.trim().parse::<u32>() {
++            return Ok((code, name));
++        }
++    }
++
+     let output = Command::new("git")
+         .args(["rev-list", "--count", "HEAD"])
+         .output()?;
+diff --git a/userspace/ksud/src/boot_patch.rs b/userspace/ksud/src/boot_patch.rs
+index bc26bfab..a6931a92 100644
+--- a/userspace/ksud/src/boot_patch.rs
++++ b/userspace/ksud/src/boot_patch.rs
+@@ -101,7 +101,17 @@ mod android {
+     }
+ 
+     pub fn get_current_kmi() -> Result<String> {
+-        parse_kmi_from_uname().or_else(|_| parse_kmi_from_modules())
++        if let Ok(kmi) = parse_kmi_from_uname().or_else(|_| parse_kmi_from_modules()) {
++            return Ok(kmi);
++        }
++        // Vendor releases such as `5.10.198-perf-<sha>` carry no androidNN tag,
++        // so neither probe can succeed. Use the single KMI the loader embeds.
++        let embedded = crate::assets::list_supported_kmi();
++        match embedded.len() {
++            1 => Ok(embedded[0].clone()),
++            0 => bail!("no kernel module embedded"),
++            _ => bail!("cannot detect KMI; {} modules embedded", embedded.len()),
++        }
+     }
+ 
+     fn calculate_sha1(file_path: impl AsRef<Path>) -> Result<String> {

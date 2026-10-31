@@ -1,0 +1,245 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Create a GitHub release from the artifacts
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  KERNEL_REPO: https://android.googlesource.com/kernel/common
+  KERNEL_TAG: android12-5.10.198_r00
+  KERNEL_COMMIT: 9db823a19d2674d9e551c061386863a3936b4331
+  KSU_TAG: v3.3.1
+  KSU_VERSION_CODE: "32680"
+  KSU_VERSION_NAME: "3.3.1"
+  MANAGER_REPO: tiann/KernelSU
+  MANAGER_ASSET: KernelSU_v3.3.1_32680-release.apk
+  MANAGER_SHA256: b4a059ace71de2fa65cc7f12b1c58d55fc23ab25e057ee4230ce779742abe450
+  NDK_VERSION: 27.3.13750724
+  KMI: android12-5.10
+  KEY_ALIAS: sparrow
+
+jobs:
+  build:
+    name: build (${{ matrix.firmware }})
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - firmware: 5.15.7-b9111
+            ota_url: ${{ vars.OTA_URL }}
+            boot_sha256: ${{ vars.OTA_BOOT_SHA256 }}
+            kernel_release: 5.10.198-perf-gaaf872b28b70-ab117
+          - firmware: 5.15.4-b8047
+            ota_url: ${{ vars.OTA_URL_5_15_4 }}
+            boot_sha256: ${{ vars.OTA_BOOT_SHA256_5_15_4 }}
+            kernel_release: 5.10.198-perf-g9f520a4e4b71-ab1
+    env:
+      FIRMWARE: ${{ matrix.firmware }}
+      OTA_URL: ${{ matrix.ota_url }}
+      OTA_BOOT_SHA256: ${{ matrix.boot_sha256 }}
+      EXPECTED_KERNEL_RELEASE: ${{ matrix.kernel_release }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install NDK and build dependencies
+        run: |
+          sdkmanager --install "ndk;$NDK_VERSION" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bc libelf-dev cpio
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android
+
+      - name: Cache OTA kernel headers
+        uses: actions/cache@v6
+        id: ota-cache
+        with:
+          path: |
+            build/kheaders.tar.xz
+            build/kernel.config
+          key: ota-${{ env.OTA_BOOT_SHA256 }}-${{ hashFiles('scripts/ota_boot.py') }}
+
+      - name: Recover kernel headers from OTA
+        if: steps.ota-cache.outputs.cache-hit != 'true'
+        run: python3 scripts/ota_boot.py build
+
+      - name: Import signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/sign
+          printf '%s' "$KEYSTORE_B64" | base64 -d > build/sign/key.p12
+          keytool -exportcert -keystore build/sign/key.p12 -storetype PKCS12 \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" \
+            -file build/sign/cert.der >/dev/null
+          python3 - <<'PY'
+          import hashlib, os
+          der = open("build/sign/cert.der", "rb").read()
+          if len(der) > 1024:
+              raise SystemExit(f"certificate too large for KernelSU: {len(der)} bytes")
+          with open(os.environ["GITHUB_ENV"], "a") as fh:
+              fh.write(f"KSU_EXPECTED_SIZE=0x{len(der):04x}\n")
+              fh.write(f"KSU_EXPECTED_HASH={hashlib.sha256(der).hexdigest()}\n")
+          PY
+
+      - name: Fetch kernel source
+        run: |
+          set -euo pipefail
+          git init -q build/linux
+          git -C build/linux remote add origin "$KERNEL_REPO"
+          git -C build/linux fetch -q --depth 1 origin "$KERNEL_TAG"
+          git -C build/linux checkout -q FETCH_HEAD
+          test "$(git -C build/linux rev-parse HEAD)" = "$KERNEL_COMMIT"
+
+      - name: Overlay device headers
+        run: |
+          set -euo pipefail
+          tar -C build/linux -xf build/kheaders.tar.xz
+          cp build/kernel.config build/linux/.config
+          release="$(sed -n 's/^#define UTS_RELEASE "\(.*\)"$/\1/p' build/linux/include/generated/utsrelease.h)"
+          test "$release" = "$EXPECTED_KERNEL_RELEASE"
+          printf '%s' "${release#"${release%%-perf*}"-perf}" > build/linux/.scmversion
+          echo "KERNEL_RELEASE=$release" >> "$GITHUB_ENV"
+
+      - name: Configure kernel
+        run: |
+          set -euo pipefail
+          cd build/linux
+          arch=(ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1)
+          make -s "${arch[@]}" syncconfig </dev/null
+          for flag in CONFIG_MODULES=y CONFIG_LTO_CLANG_FULL=y CONFIG_CFI_CLANG=y CONFIG_CFI_CLANG_SHADOW=y; do
+            grep -qx "$flag" include/config/auto.conf
+          done
+          make -s "${arch[@]}" prepare </dev/null
+          make -s "${arch[@]}" modules_prepare </dev/null
+          make -s "${arch[@]}" scripts </dev/null
+          scripts/selinux/genheaders/genheaders security/selinux/flask.h security/selinux/av_permissions.h
+          tar -C . -xf ../kheaders.tar.xz
+          grep -qx '#define TSK_STACK_CANARY 1744 ' include/generated/asm-offsets.h
+          test "$(grep -c CONFIG_STACKPROTECTOR_PER_TASK include/generated/autoconf.h || true)" = "0"
+
+      - name: Fetch KernelSU
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.MANAGER_REPO }}
+          ref: refs/tags/${{ env.KSU_TAG }}
+          path: build/ksud
+          persist-credentials: false
+
+      - name: Patch ksud
+        run: |
+          git -C build/ksud apply "$GITHUB_WORKSPACE/patches/ksud.patch"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: build/ksud
+
+      - name: Build kernel module
+        run: |
+          set -euo pipefail
+          make -C build/linux M="$PWD/build/ksud/kernel" src="$PWD/build/ksud/kernel" \
+            ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CONFIG_KSU=m \
+            KSU_GIT_VERSION_VALID=1 KSU_GIT_VERSION="$((KSU_VERSION_CODE - 30000))" \
+            KSU_EXPECTED_SIZE="$KSU_EXPECTED_SIZE" KSU_EXPECTED_HASH="$KSU_EXPECTED_HASH" \
+            -j"$(nproc)" </dev/null
+          module=build/ksud/kernel/kernelsu.ko
+          test "$(modinfo -F vermagic "$module" | cut -d' ' -f1)" = "$KERNEL_RELEASE"
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-debug "$module"
+          install -m 0644 "$module" "build/ksud/userspace/ksud/bin/aarch64/${KMI}_kernelsu.ko"
+
+      - name: Build ksud
+        run: |
+          set -euo pipefail
+          ndk_bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ndk_bin/aarch64-linux-android31-clang"
+          export CC_aarch64_linux_android="$ndk_bin/aarch64-linux-android31-clang"
+          export AR_aarch64_linux_android="$ndk_bin/llvm-ar"
+          export RANLIB_aarch64_linux_android="$ndk_bin/llvm-ranlib"
+          export LIBCLANG_PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/musl/lib"
+          export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          cargo build --locked --release --target aarch64-linux-android \
+            --manifest-path build/ksud/userspace/ksud/Cargo.toml
+
+      - name: Repack manager
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/out build/ksud/manager/app/build/outputs/apk/release
+          gh release download "$KSU_TAG" --repo "$MANAGER_REPO" --pattern "$MANAGER_ASSET" --dir build
+          echo "$MANAGER_SHA256  build/$MANAGER_ASSET" | sha256sum -c -
+          cp "build/$MANAGER_ASSET" \
+            "build/ksud/manager/app/build/outputs/apk/release/KernelSU_${KSU_TAG}_${KSU_VERSION_CODE}-release.apk"
+          cd build/ksud
+          python3 repack_apk.py repack \
+            -b release -t release -a arm64-v8a \
+            -K "$GITHUB_WORKSPACE/build/sign/key.p12" -A "$KEY_ALIAS" \
+            -P "$KEYSTORE_PASSWORD" -S "$KEYSTORE_PASSWORD" \
+            -n "KernelSU_${KSU_TAG}_${KSU_VERSION_CODE}-sparrow-${FIRMWARE}" \
+            -o "$GITHUB_WORKSPACE/build/out" --strip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kernelsu-sparrow-${{ matrix.firmware }}
+          path: build/out/*.apk
+          archive: false
+          if-no-files-found: error
+
+      - uses: actions/attest@v4
+        with:
+          subject-path: build/out/*.apk
+
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: kernelsu-sparrow-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${KSU_VERSION_CODE}-sparrow-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" dist/*.apk \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$tag" --notes "KernelSU ${KSU_VERSION_NAME} repacked for sparrow"
