@@ -113,7 +113,15 @@ jobs:
               fh.write(f"KSU_EXPECTED_HASH={hashlib.sha256(der).hexdigest()}\n")
           PY
 
+      - name: Restore kernel source
+        uses: actions/cache/restore@v6
+        id: kernel-cache
+        with:
+          path: build/linux
+          key: linux-v1-${{ env.KERNEL_COMMIT }}
+
       - name: Fetch kernel source
+        if: steps.kernel-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           git init -q build/linux
@@ -121,6 +129,18 @@ jobs:
           git -C build/linux fetch -q --depth 1 origin "$KERNEL_TAG"
           git -C build/linux checkout -q FETCH_HEAD
           test "$(git -C build/linux rev-parse HEAD)" = "$KERNEL_COMMIT"
+          rm -rf build/linux/.git
+          printf '%s' "$KERNEL_COMMIT" > build/linux/.kernel-commit
+
+      - name: Verify kernel source
+        run: test "$(cat build/linux/.kernel-commit)" = "$KERNEL_COMMIT"
+
+      - name: Save kernel source
+        if: steps.kernel-cache.outputs.cache-hit != 'true' && matrix.firmware == '5.15.7-b9111'
+        uses: actions/cache/save@v6
+        with:
+          path: build/linux
+          key: ${{ steps.kernel-cache.outputs.cache-primary-key }}
 
       - name: Overlay device headers
         run: |
