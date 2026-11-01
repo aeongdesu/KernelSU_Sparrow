@@ -6,3 +6,6 @@ so this module just adds dfroot app to whitelist
 
 please make sure **start on boot** option enabled in dfroot app!
 
+
+## auto builds
+https://github.com/aeongdesu/KernelSU_Sparrow/releases/tag/modules
