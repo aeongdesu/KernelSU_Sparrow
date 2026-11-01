@@ -5,11 +5,15 @@ on:
   push:
     branches: [main]
     paths:
+      - 'README.md'
       - 'modules/**'
+      - '!modules/**.md'
       - '.github/workflows/modules.yml'
   pull_request:
     paths:
+      - 'README.md'
       - 'modules/**'
+      - '!modules/**.md'
       - '.github/workflows/modules.yml'
 
 permissions:
