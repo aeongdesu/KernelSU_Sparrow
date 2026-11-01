@@ -1,4 +1,4 @@
-name: build
+name: build manager
 
 on:
   workflow_dispatch:
@@ -9,7 +9,13 @@ on:
         default: false
   push:
     branches: [main]
+    paths-ignore:
+      - 'modules/**'
+      - '.github/workflows/modules.yml'
   pull_request:
+    paths-ignore:
+      - 'modules/**'
+      - '.github/workflows/modules.yml'
 
 permissions:
   contents: read
@@ -208,6 +214,7 @@ jobs:
           export RANLIB_aarch64_linux_android="$ndk_bin/llvm-ranlib"
           export LIBCLANG_PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/musl/lib"
           export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          
           cargo build --locked --release --target aarch64-linux-android \
             --manifest-path build/ksud/userspace/ksud/Cargo.toml
 
@@ -254,12 +261,16 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="v${KSU_VERSION_CODE}-sparrow-${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" dist/*.apk \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "$tag" --notes "KernelSU ${KSU_VERSION_NAME} repacked for sparrow"
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ env.KSU_VERSION_CODE }}-sparrow-${{ github.run_number }}
+          name: v${{ env.KSU_VERSION_CODE }}-sparrow-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            > [!IMPORTANT]
+            > Please verify that the manager app's filename matches your current firmware version!
+
+            KernelSU ${{ env.KSU_VERSION_NAME }} repacked for sparrow
+          files: dist/*.apk
+          fail_on_unmatched_files: true
+          overwrite_files: true
