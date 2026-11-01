@@ -2,10 +2,6 @@ name: modules build
 
 on:
   workflow_dispatch:
-    inputs:
-      publish:
-        type: boolean
-        default: false
   push:
     branches: [main]
     paths:
@@ -19,154 +15,156 @@ on:
 permissions:
   contents: read
 
+env:
+  MODULE_ROOT: modules
+  RELEASE_TAG: modules
+  DIST: dist
+
 jobs:
-  discover:
-    name: check modules
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.find.outputs.matrix }}
-      tag: ${{ steps.find.outputs.tag }}
+  modules:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Find module sources
-        id: find
+      - name: Validate modules
         run: |
           set -euo pipefail
           shopt -s nullglob
-          props=(modules/*/src/module.prop)
-          if [ ${#props[@]} -eq 0 ]; then
-            echo "::error::no modules found under modules/*/src"
-            exit 1
-          fi
+          props=("$MODULE_ROOT"/*/src/module.prop)
+          [ ${#props[@]} -gt 0 ] || { echo "::error::no modules under $MODULE_ROOT/*/src"; exit 1; }
 
-          entries=()
+          manifest="$RUNNER_TEMP/modules.tsv"
+          : > "$manifest"
+
+          declare -A seen=()
           for prop in "${props[@]}"; do
-            dir=$(dirname "$(dirname "$prop")")
+            src=$(dirname "$prop")
+            dir=$(dirname "$src")
             id=$(sed -n 's/^id=//p' "$prop" | head -n1)
-            version=$(sed -n 's/^version=//p' "$prop" | head -n1)
             code=$(sed -n 's/^versionCode=//p' "$prop" | head -n1)
+
             [ -n "$id" ] || { echo "::error file=$prop::missing id"; exit 1; }
             [ -n "$code" ] || { echo "::error file=$prop::missing versionCode"; exit 1; }
-            entries+=("$(jq -cn \
-              --arg dir "$dir" --arg id "$id" \
-              --arg version "$version" --arg versionCode "$code" \
-              '{dir:$dir, id:$id, version:$version, versionCode:$versionCode}')")
+
+            if grep -qP '\r' "$prop"; then
+              echo "::error file=$prop::CRLF line endings"
+              exit 1
+            fi
+
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              case "$line" in
+                id=* | name=* | version=* | versionCode=* | author=* | description=* | updateJson=* | actionIcon=* | webuiIcon=*) ;;
+                *) echo "::error file=$prop::unexpected line: $line"; exit 1 ;;
+              esac
+            done < "$prop"
+
+            printf '%s' "$id" | grep -Eq '^[a-zA-Z][a-zA-Z0-9._-]+$' ||
+              { echo "::error::invalid module id: $id"; exit 1; }
+
+            [ "$(basename "$dir")" = "$id" ] ||
+              { echo "::error::directory $(basename "$dir") does not match id=$id"; exit 1; }
+
+            [ -z "${seen[$id]:-}" ] ||
+              { echo "::error::duplicate module id: $id"; exit 1; }
+            seen[$id]=1
+
+            if [ -f "$src/customize.sh" ] &&
+              grep -Eq '(^|&&|;)[[:space:]]*exit([[:space:]]|$)' "$src/customize.sh"; then
+              echo "::error file=$src/customize.sh::must not call exit (the file is sourced)"
+              exit 1
+            fi
+
+            for f in "$src"/*.sh; do
+              sh -n "$f" || { echo "::error file=$f::shell syntax error"; exit 1; }
+            done
+
+            printf '%s\t%s\n' "$id" "$src" >> "$manifest"
+            echo "ok: $id"
           done
 
-          matrix=$(printf '%s\n' "${entries[@]}" | jq -sc '{include: .}')
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "$matrix" | jq .
-
-          ids=$(echo "$matrix" | jq -r '.include[].id' | sort -u | paste -sd- -)
-          maxcode=$(echo "$matrix" | jq -r '.include[].versionCode' | sort -n | tail -n1)
-          echo "tag=modules-${ids}-${maxcode}" >> "$GITHUB_OUTPUT"
-          echo "tag: modules-${ids}-${maxcode}"
-
-  build:
-    name: build ${{ matrix.id }}
-    needs: discover
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Validate ${{ matrix.id }}
-        env:
-          DIR: ${{ matrix.dir }}
-          ID: ${{ matrix.id }}
+      - name: Build module ZIPs
         run: |
           set -euo pipefail
-          src="$DIR/src"
+          shopt -s nullglob
+          mkdir -p "$DIST"
 
-          if grep -qP '\r' "$src/module.prop"; then
-            echo "::error file=$src/module.prop::CRLF line endings"
-            exit 1
-          fi
+          while IFS=$'\t' read -r id src; do
+            [ -n "$id" ] || continue
+            zip_path="$GITHUB_WORKSPACE/$DIST/$id.zip"
 
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            case "$line" in
-              id=* | name=* | version=* | versionCode=* | author=* | description=* | updateJson=* | actionIcon=* | webuiIcon=*) ;;
-              *) echo "::error file=$src/module.prop::unexpected line: $line"; exit 1 ;;
-            esac
-          done < "$src/module.prop"
+            find "$src" -type f -name '*.sh' -exec chmod 0755 {} +
+            find "$src" -type f ! -name '*.sh' -exec chmod 0644 {} +
 
-          printf '%s' "$ID" | grep -Eq '^[a-zA-Z][a-zA-Z0-9._-]+$' ||
-            { echo "::error::invalid module id: $ID"; exit 1; }
+            (cd "$src" && zip -q -X -r "$zip_path" . -x '.*' -x '*/.*' -x '__MACOSX/*')
 
-          [ "$(basename "$DIR")" = "$ID" ] ||
-            { echo "::error::directory $(basename "$DIR") does not match id=$ID"; exit 1; }
+            unzip -tq "$zip_path" >/dev/null
+            if unzip -Z1 "$zip_path" | grep -qE '/module\.prop$'; then
+              echo "::error::module.prop must be at the ZIP root, not in a subdirectory"
+              exit 1
+            fi
+            unzip -Z1 "$zip_path" | grep -qx 'module.prop' ||
+              { echo "::error::missing module.prop at ZIP root"; exit 1; }
 
-          if grep -Eq '(^|&&|;)[[:space:]]*exit([[:space:]]|$)' "$src/customize.sh"; then
-            echo "::error file=$src/customize.sh::must not call exit (the file is sourced)"
-            exit 1
-          fi
+            echo "built: $DIST/$id.zip"
+          done < "$RUNNER_TEMP/modules.tsv"
 
-          for f in "$src"/*.sh; do
-            sh -n "$f" || { echo "::error file=$f::shell syntax error"; exit 1; }
-          done
-
-      - name: Build ${{ matrix.id }}.zip
-        env:
-          DIR: ${{ matrix.dir }}
-          ID: ${{ matrix.id }}
-        run: |
-          set -euo pipefail
-          src="$DIR/src"
-          mkdir -p dist
-
-          find "$src" -type f -name '*.sh' -exec chmod 0755 {} +
-          find "$src" -type f ! -name '*.sh' -exec chmod 0644 {} +
-
-          (cd "$src" && zip -q -X -r "$GITHUB_WORKSPACE/dist/$ID.zip" . \
-            -x '.*' -x '*/.*' -x '__MACOSX/*')
-
-          unzip -Z1 "dist/$ID.zip" | grep -qx 'module.prop'
-          unzip -tq "dist/$ID.zip" >/dev/null
+          ls -l "$DIST"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: module-${{ matrix.id }}
-          path: dist/${{ matrix.id }}.zip
+          name: modules
+          path: dist/*.zip
           archive: false
           if-no-files-found: error
 
       - uses: actions/attest@v4
         if: github.event_name != 'pull_request'
         with:
-          subject-path: dist/${{ matrix.id }}.zip
-
-  release:
-    name: publish modules
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
-    needs: [discover, build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: 'module-*'
-          merge-multiple: true
-          path: dist
+          subject-path: dist/*.zip
 
       - uses: softprops/action-gh-release@v3
+        if: github.event_name != 'pull_request'
         with:
-          tag_name: ${{ needs.discover.outputs.tag }}
-          name: ${{ needs.discover.outputs.tag }}
+          tag_name: modules
+          name: modules
           target_commitish: ${{ github.sha }}
-          body: Modules built from ${{ github.sha }}
+          body: |
+            Module builds from ${{ github.sha }}
           files: dist/*.zip
           fail_on_unmatched_files: true
           overwrite_files: true
+
+      - name: Prune removed modules
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          zips=("$GITHUB_WORKSPACE/$DIST"/*.zip)
+          [ ${#zips[@]} -gt 0 ] || { echo "::error::no built ZIPs to publish"; exit 1; }
+          keep=$(printf '%s\n' "${zips[@]}" | xargs -n1 basename | sort)
+
+          have=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | sort)
+
+          stale=$(comm -13 <(printf '%s\n' "$keep") <(printf '%s\n' "$have") || true)
+          if [ -z "$stale" ]; then
+            echo "nothing to prune"
+            exit 0
+          fi
+
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            echo "pruning $name"
+            gh release delete-asset "$RELEASE_TAG" "$name" \
+              --repo "$GITHUB_REPOSITORY" --yes
+          done <<< "$stale"
