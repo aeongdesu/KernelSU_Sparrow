@@ -13,8 +13,8 @@ https://github.com/user-attachments/assets/c9fff8a6-9f5c-4251-88c8-3e525bb657a9
 > [!WARNING]
 > I am not responsible for any damage to your device.
 
-1. install [DFRoot](https://github.com/diabl0w/DFRoot/releases/latest) and [Repacked KernelSU Manager](https://github.com/aeongdesu/KernelSU_Sparrow/releases/latest)
-2. that's it, enjoy!
+1. install [DFRoot](https://github.com/diabl0w/DFRoot/releases/latest) and [Repacked KernelSU Manager](https://github.com/aeongdesu/KernelSU_Sparrow/releases/latest) **via adb install**[^why]
+2. that's it, run dfroot and enjoy!
 
 > check [useful kernelsu modules](./modules/) if interested~
 
@@ -28,3 +28,5 @@ https://github.com/user-attachments/assets/c9fff8a6-9f5c-4251-88c8-3e525bb657a9
 - https://github.com/tiann/KernelSU
 - deepseek for research
   - alright sorry but someone had to do this already
+ 
+[^why]: https://github.com/aeongdesu/KernelSU_Sparrow/issues/2
