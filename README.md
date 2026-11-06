@@ -29,4 +29,4 @@ https://github.com/user-attachments/assets/c9fff8a6-9f5c-4251-88c8-3e525bb657a9
 - deepseek for research
   - alright sorry but someone had to do this already
  
-[^why]: https://github.com/aeongdesu/KernelSU_Sparrow/issues/2
+[^why]: adb not really required, but package name can be changed to fail exploit for unknown reason: I can't reproduce this;; https://github.com/aeongdesu/KernelSU_Sparrow/issues/2
