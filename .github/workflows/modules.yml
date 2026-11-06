@@ -20,7 +20,6 @@ permissions:
 env:
   MODULE_ROOT: modules
   RELEASE_TAG: ksu_modules
-  DIST: dist
 
 jobs:
   modules:
@@ -95,11 +94,11 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          mkdir -p "$DIST"
+          mkdir -p dist
 
           while IFS=$'\t' read -r id src; do
             [ -n "$id" ] || continue
-            zip_path="$GITHUB_WORKSPACE/$DIST/$id.zip"
+            zip_path="$GITHUB_WORKSPACE/dist/$id.zip"
 
             find "$src" -type f -name '*.sh' -exec chmod 0755 {} +
             find "$src" -type f ! -name '*.sh' -exec chmod 0644 {} +
@@ -114,10 +113,10 @@ jobs:
             unzip -Z1 "$zip_path" | grep -qx 'module.prop' ||
               { echo "::error::missing module.prop at ZIP root"; exit 1; }
 
-            echo "built: $DIST/$id.zip"
+            echo "built: dist/$id.zip"
           done < "$RUNNER_TEMP/modules.tsv"
 
-          ls -l "$DIST"
+          ls -l dist/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -134,7 +133,7 @@ jobs:
       - uses: softprops/action-gh-release@v3
         if: github.event_name != 'pull_request'
         with:
-          tag_name: ksu_modules
+          tag_name: ${{ env.RELEASE_TAG }}
           name: modules
           target_commitish: ${{ github.sha }}
           body: |
@@ -152,7 +151,7 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          zips=("$GITHUB_WORKSPACE/$DIST"/*.zip)
+          zips=("$GITHUB_WORKSPACE/dist"/*.zip)
           [ ${#zips[@]} -gt 0 ] || { echo "::error::no built ZIPs to publish"; exit 1; }
           keep=$(printf '%s\n' "${zips[@]}" | xargs -n1 basename | sort)
 

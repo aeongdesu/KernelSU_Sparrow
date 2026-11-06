@@ -11,7 +11,7 @@ log_t() {
     command log -t dfroot_boot_helper "$*" 2>/dev/null || true
 }
 
-# app_process needs init's mount namespace to link libnativeloader.so.
+# app_process needs init's mount namespace to link libnativeloader.so
 NS="busybox nsenter -t 1 -m"
 $NS true >/dev/null 2>&1 || NS=
 
@@ -19,6 +19,7 @@ apk_path() {
     timeout 20 $NS pm path "$PVR_PKG" 2>/dev/null | sed -n 's/^package://p' | head -n 1
 }
 
+# see dfroot_boot_helper/notify/ for this binary
 notify_observer() {
     $NS env CLASSPATH="$MODDIR/notify.dex" app_process /system/bin Notify "$URI" >/dev/null 2>&1
 }
@@ -26,7 +27,7 @@ notify_observer() {
 restore_whitelist() {
     case "$PVR_BOOT" in
         1) pvr_empty && log_t "boot start disabled, whitelist left empty" ;;
-        # an unknown state keeps the entry: without it the next boot loses root
+        # an unknown state keeps the entry, without it the next boot loses root
         *) sh "$MODDIR/apply.sh" >/dev/null 2>&1 && log_t "whitelist restored for next boot" ;;
     esac
 }
@@ -50,7 +51,7 @@ wait_for_system_server() {
     log_t "system_server settled (pid $last, checks $tries)"
 }
 
-# Read only at parse time: drop the entry, notify, then reparse.
+# read only at parse time, drop the entry, notify, then reparse
 clean_vr() {
     deadline=$(($(date +%s) + 300))
     attempt=1
@@ -102,7 +103,7 @@ case "$PVR_VR" in
 esac
 restore_whitelist
 
-# VR state and the boot switch only exist in dumpsys, so poll it.
+# VR state and the boot switch only exist in dumpsys
 while :; do
     sleep 10
     [ "$(cat "$PIDFILE" 2>/dev/null || true)" = "$$" ] || exit 0

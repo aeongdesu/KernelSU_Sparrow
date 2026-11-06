@@ -4,7 +4,7 @@ PVR_PKG="${PVR_PACKAGE:-df.root}"
 PVR_WL="${PVR_WHITELIST_PATH:-/data/system/users/0/pvr_white_list.xml}"
 PVR_Q="[\"']"
 
-# Sets PVR_VR and PVR_BOOT: 0 = yes, 1 = no, 2 = no answer.
+# sets PVR_VR and PVR_BOOT: 0 = yes, 1 = no, 2 = no answer
 pvr_snapshot() {
     out=$(timeout 10 dumpsys package "$PVR_PKG" 2>/dev/null | awk -v name="$PVR_PKG.BootReceiver" '
         /isVrApp: true/ { vr = 0 }
@@ -62,13 +62,13 @@ pvr_attrs() {
     restorecon "$1" 2>/dev/null || true
 }
 
-# Set the attributes before the rename; the move preserves them.
+# set the attributes before the rename, the move preserves them
 pvr_replace() {
     pvr_attrs "$1" || { rm -f "$1"; return 1; }
     mv -f "$1" "$PVR_WL" || { rm -f "$1"; return 1; }
 }
 
-# Keep a valid empty document: no file leaves the old sets in place.
+# keep a valid empty document, no file leaves the old sets in place
 pvr_empty() {
     tmp="${PVR_WL}.new.$$"
     printf '<?xml version="1.0" encoding="utf-8"?>\n<whitelist-packages>\n</whitelist-packages>\n' > "$tmp" ||
@@ -76,7 +76,6 @@ pvr_empty() {
     pvr_replace "$tmp"
 }
 
-# Drop only our entry; another package's entry survives.
 pvr_strip() {
     tmp="${PVR_WL}.rm.$$"
     pkg=$(printf '%s' "$PVR_PKG" | sed 's/\./[.]/g')
