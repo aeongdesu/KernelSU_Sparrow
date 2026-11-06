@@ -1,6 +1,0 @@
-id=dfroot_whitelist
-name=Whitelist DFRoot for PICO VR
-version=v1
-versionCode=1
-author=aeongdesu
-description=put df.root in pvr_white_list.xml to work start on boot option
