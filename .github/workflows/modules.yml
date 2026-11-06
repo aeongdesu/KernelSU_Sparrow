@@ -19,7 +19,7 @@ permissions:
 
 env:
   MODULE_ROOT: modules
-  RELEASE_TAG: modules
+  RELEASE_TAG: ksu_modules
   DIST: dist
 
 jobs:
@@ -134,7 +134,7 @@ jobs:
       - uses: softprops/action-gh-release@v3
         if: github.event_name != 'pull_request'
         with:
-          tag_name: modules
+          tag_name: ksu_modules
           name: modules
           target_commitish: ${{ github.sha }}
           body: |
