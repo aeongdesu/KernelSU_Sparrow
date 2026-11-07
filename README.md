@@ -19,8 +19,10 @@ https://github.com/user-attachments/assets/c9fff8a6-9f5c-4251-88c8-3e525bb657a9
 > check [useful kernelsu modules](./modules/) if interested~
 
 ## supported firmwares
-- `5.15.7`
-- `5.15.4` (untested, but will work because same kernel source)
+- kernel `5.10.198-perf`
+  - 5.15.7, latest!
+  - 5.15.4
+- send pull request if you need
 
 ---
 ## credits
