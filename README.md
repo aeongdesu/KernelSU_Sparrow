@@ -22,6 +22,7 @@ https://github.com/user-attachments/assets/c9fff8a6-9f5c-4251-88c8-3e525bb657a9
 - kernel `5.10.198-perf`
   - 5.15.7, latest!
   - 5.15.4
+  - 5.15.2
 - send pull request if you need
 
 ---
