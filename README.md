@@ -13,7 +13,7 @@ https://github.com/user-attachments/assets/c9fff8a6-9f5c-4251-88c8-3e525bb657a9
 > [!WARNING]
 > I am not responsible for any damage to your device.
 
-1. install [DFRoot](https://github.com/diabl0w/DFRoot/releases/latest) and [Repacked KernelSU Manager](https://github.com/aeongdesu/KernelSU_Sparrow/releases/latest) **via adb install**[^why]
+1. install [DFRoot](https://github.com/diabl0w/DFRoot/releases/latest) and [Repacked KernelSU Manager](https://github.com/aeongdesu/KernelSU_Sparrow/releases/latest) **via adb install or official file browser app**[^why]
 2. that's it, run dfroot and enjoy!
 
 > check [useful kernelsu modules](./modules/) if interested~
@@ -32,4 +32,4 @@ https://github.com/user-attachments/assets/c9fff8a6-9f5c-4251-88c8-3e525bb657a9
 - deepseek for research
   - alright sorry but someone had to do this already
  
-[^why]: adb not really required, but package name can be changed to fail exploit for unknown reason: I can't reproduce this;; https://github.com/aeongdesu/KernelSU_Sparrow/issues/2
+[^why]: if you trying to install these apps with matrix bypass(package name rename), it won't exploit - [related issue](https://github.com/aeongdesu/KernelSU_Sparrow/issues/2)
