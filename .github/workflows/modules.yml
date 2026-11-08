@@ -122,7 +122,6 @@ jobs:
         with:
           name: modules
           path: dist/*.zip
-          archive: false
           if-no-files-found: error
 
       - uses: actions/attest@v4
