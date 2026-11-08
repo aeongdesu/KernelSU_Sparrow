@@ -26,29 +26,21 @@ notify_observer() {
 
 restore_whitelist() {
     case "$PVR_BOOT" in
-        1) pvr_empty && log_t "boot start disabled, whitelist left empty" ;;
+        1) pvr_whitelisted &&
+            { pvr_unlist && log_t "boot start disabled, whitelist entry removed"; } ;;
         # an unknown state keeps the entry, without it the next boot loses root
         *) sh "$MODDIR/apply.sh" >/dev/null 2>&1 && log_t "whitelist restored for next boot" ;;
     esac
 }
 
-wait_for_system_server() {
-    last=
-    stable=0
+wait_for_boot() {
     tries=0
-    while [ "$stable" -lt 4 ] && [ "$tries" -lt 24 ]; do
+    while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$tries" -lt 90 ]; do
+        sleep 2
         tries=$((tries + 1))
-        pid=$(pidof system_server 2>/dev/null | awk '{ print $1; exit }')
-        pvr_snapshot
-        if [ -n "$pid" ] && [ "$pid" = "$last" ] && [ "$PVR_VR" -ne 2 ]; then
-            stable=$((stable + 1))
-        else
-            stable=0
-        fi
-        last=$pid
-        sleep 5
     done
-    log_t "system_server settled (pid $last, checks $tries)"
+    pvr_snapshot
+    log_t "boot completed (prop, checks $tries)"
 }
 
 # read only at parse time, drop the entry, notify, then reparse
@@ -56,7 +48,7 @@ clean_vr() {
     deadline=$(($(date +%s) + 300))
     attempt=1
     while [ "$(date +%s)" -lt "$deadline" ]; do
-        pvr_empty
+        pvr_unlist
         if notify_observer; then
             apk=$(apk_path)
             if [ -n "$apk" ] && timeout 180 $NS pm install -r -d "$apk" >/dev/null 2>&1; then
@@ -82,7 +74,7 @@ sync_switch() {
         0) pvr_whitelisted ||
             { sh "$MODDIR/apply.sh" >/dev/null 2>&1 && log_t "boot start enabled, whitelist restored"; } ;;
         1) pvr_whitelisted &&
-            { pvr_empty && log_t "boot start disabled, whitelist removed"; } ;;
+            { pvr_unlist && log_t "boot start disabled, whitelist entry removed"; } ;;
     esac
 }
 
@@ -94,7 +86,7 @@ echo $$ > "$PIDFILE"
 trap '[ "$(cat "$PIDFILE" 2>/dev/null)" = "$$" ] && rm -f "$PIDFILE"' 0
 
 log_t "starting"
-wait_for_system_server
+wait_for_boot
 
 case "$PVR_VR" in
     0) clean_vr || log_t "cleanup failed" ;;

@@ -13,6 +13,6 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
 javac -source 8 -target 8 -bootclasspath "$jar" -d "$out" Notify.java
-"$d8" --min-api 34 --output "$out" "$out/Notify.class"
+"$d8" --min-api 34 --lib "$jar" --output "$out" "$out/Notify.class"
 cp "$out/classes.dex" ../src/notify.dex
 echo "wrote ../src/notify.dex"

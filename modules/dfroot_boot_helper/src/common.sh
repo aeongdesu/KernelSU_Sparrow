@@ -3,6 +3,7 @@
 PVR_PKG="${PVR_PACKAGE:-df.root}"
 PVR_WL="${PVR_WHITELIST_PATH:-/data/system/users/0/pvr_white_list.xml}"
 PVR_Q="[\"']"
+PVR_PKG_RE=$(printf '%s' "$PVR_PKG" | sed 's/\./[.]/g')
 
 # sets PVR_VR and PVR_BOOT: 0 = yes, 1 = no, 2 = no answer
 pvr_snapshot() {
@@ -44,8 +45,7 @@ pvr_snapshot() {
 
 pvr_whitelisted() {
     [ -f "$PVR_WL" ] || return 1
-    pkg=$(printf '%s' "$PVR_PKG" | sed 's/\./[.]/g')
-    grep -Eq "packagename[[:space:]]*=[[:space:]]*${PVR_Q}${pkg}${PVR_Q}" "$PVR_WL"
+    grep -Eq "packagename[[:space:]]*=[[:space:]]*${PVR_Q}${PVR_PKG_RE}${PVR_Q}" "$PVR_WL"
 }
 
 pvr_service_running() {
@@ -68,7 +68,7 @@ pvr_replace() {
     mv -f "$1" "$PVR_WL" || { rm -f "$1"; return 1; }
 }
 
-# keep a valid empty document, no file leaves the old sets in place
+# keep a valid empty document: a missing file falls back to /system/etc/whitelist
 pvr_empty() {
     tmp="${PVR_WL}.new.$$"
     printf '<?xml version="1.0" encoding="utf-8"?>\n<whitelist-packages>\n</whitelist-packages>\n' > "$tmp" ||
@@ -76,11 +76,11 @@ pvr_empty() {
     pvr_replace "$tmp"
 }
 
+# remove our entry only; other packages stay whitelisted
 pvr_strip() {
     tmp="${PVR_WL}.rm.$$"
-    pkg=$(printf '%s' "$PVR_PKG" | sed 's/\./[.]/g')
 
-    awk -v re="<(ns2:)?item[^>]*packagename[[:space:]]*=[[:space:]]*${PVR_Q}${pkg}${PVR_Q}[^>]*>" '
+    awk -v re="<(ns2:)?item[^>]*packagename[[:space:]]*=[[:space:]]*${PVR_Q}${PVR_PKG_RE}${PVR_Q}[^>]*>" '
         {
             gsub(re, "")
             if ($0 ~ /^[[:space:]]*$/) next
@@ -98,4 +98,10 @@ pvr_strip() {
         rm -f "$tmp"
         pvr_empty
     fi
+}
+
+# drop only our entry, other whitelisted packages stay untouched
+pvr_unlist() {
+    pvr_whitelisted || return 0
+    pvr_strip
 }

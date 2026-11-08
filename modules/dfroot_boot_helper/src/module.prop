@@ -1,6 +1,6 @@
 id=dfroot_boot_helper
 name=DFRoot boot helper
-version=v2
-versionCode=2
+version=v3
+versionCode=3
 author=aeongdesu
 description=allow df.root on boot, then reparse it as a normal app after boot

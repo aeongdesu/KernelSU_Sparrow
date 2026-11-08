@@ -10,7 +10,5 @@ pvr_service_running "$PIDFILE" && kill "$(cat "$PIDFILE")" 2>/dev/null
 rm -f "$PIDFILE"
 
 if pvr_whitelisted; then
-    pvr_strip && echo "removed $PVR_PKG from $PVR_WL"
-else
-    pvr_empty && echo "wrote empty $PVR_WL"
+    pvr_unlist && echo "removed $PVR_PKG from $PVR_WL"
 fi
