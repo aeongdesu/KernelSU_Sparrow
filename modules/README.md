@@ -4,6 +4,9 @@
 better than dfroot_whitelist trust\
 whitelisting at boot, and set dfroot as not vr app so able to run on headset
 
+- `no_matrix`\
+why would i need login to use 3rd party vr apps
+
 
 ## auto builds
 https://github.com/aeongdesu/KernelSU_Sparrow/releases/tag/ksu_modules
